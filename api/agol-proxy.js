@@ -3,7 +3,7 @@ const USERNAME = "STAGE_IFV";
 
 export default async function handler(req, res) {
   // ── Headers CORS ──
-  res.setHeader("Access-Control-Allow-Origin", "https://antoineifv.github.io");
+  res.setHeader("Access-Control-Allow-Origin", "https://compilebsv.github.io");
   res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type");
 
@@ -15,11 +15,6 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: "Méthode non autorisée" });
   }
 
-  const API_KEY = process.env.AGOL_API_KEY;
-  if (!API_KEY) {
-    return res.status(500).json({ error: "Clé API non configurée côté serveur" });
-  }
-
   const body = req.body;
   const { action } = body;
 
@@ -28,13 +23,13 @@ export default async function handler(req, res) {
 
     switch (action) {
       case "upload":
-        result = await handleUpload(body, API_KEY);
+        result = await handleUpload(body);
         break;
       case "analyze":
-        result = await handleAnalyze(body, API_KEY);
+        result = await handleAnalyze(body);
         break;
       case "publish":
-        result = await handlePublish(body, API_KEY);
+        result = await handlePublish(body);
         break;
       default:
         return res.status(400).json({ error: "Action inconnue : " + action });
@@ -47,14 +42,37 @@ export default async function handler(req, res) {
   }
 }
 
+// ── Génère un token de session utilisateur classique ────────────────────
+async function getUserToken() {
+  const username = process.env.AGOL_USERNAME;
+  const password = process.env.AGOL_PASSWORD;
+
+  const params = new URLSearchParams({
+    username,
+    password,
+    referer: PORTAL_URL,
+    expiration: "60",
+    f: "json"
+  });
+
+  const resp = await fetch(`${PORTAL_URL}/sharing/rest/generateToken`, {
+    method: "POST",
+    body: params
+  });
+  const data = await resp.json();
+  if (data.error) throw new Error("generateToken : " + JSON.stringify(data.error));
+  return data.token;
+}
+
 // ── addItem ──────────────────────────────────────────────────────────
-async function handleUpload({ fileName, fileContent }, token) {
+async function handleUpload({ fileName, fileContent }) {
+  const token = await getUserToken();
   const buffer = Buffer.from(fileContent, "base64");
   const blob = new Blob([buffer], { type: "text/csv" });
 
   const formData = new FormData();
   formData.append("file", blob, fileName);
-  formData.append("title", "upload_" + Date.now());
+  formData.append("title", "upload_sppr_" + Date.now());
   formData.append("type", "CSV");
   formData.append("token", token);
   formData.append("f", "json");
@@ -69,7 +87,8 @@ async function handleUpload({ fileName, fileContent }, token) {
 }
 
 // ── analyze ──────────────────────────────────────────────────────────
-async function handleAnalyze({ csvText }, token) {
+async function handleAnalyze({ csvText }) {
+  const token = await getUserToken();
   await new Promise(resolve => setTimeout(resolve, 2000));
 
   const params = new URLSearchParams({
@@ -89,30 +108,9 @@ async function handleAnalyze({ csvText }, token) {
   return data;
 }
 
-// ── Génère un token OAuth2 via client_credentials ──────────────────────
-async function getOAuthToken() {
-  const clientId = process.env.AGOL_CLIENT_ID;
-  const clientSecret = process.env.AGOL_CLIENT_SECRET;
-
-  const params = new URLSearchParams({
-    client_id: clientId,
-    client_secret: clientSecret,
-    grant_type: "client_credentials",
-    f: "json"
-  });
-
-  const resp = await fetch("https://www.arcgis.com/sharing/rest/oauth2/token", {
-    method: "POST",
-    body: params
-  });
-  const data = await resp.json();
-  if (data.error) throw new Error("oauth2/token : " + JSON.stringify(data.error));
-  return data.access_token;
-}
-
-// ── publish (utilise un token OAuth2, pas la clé API) ──────────────────
-async function handlePublish({ itemId, publishParameters }, token) {
-  const oauthToken = await getOAuthToken();
+// ── publish ──────────────────────────────────────────────────────────
+async function handlePublish({ itemId, publishParameters }) {
+  const token = await getUserToken();
 
   publishParameters.name = "couche_" + Date.now();
   publishParameters.locationType = "none";
@@ -124,13 +122,11 @@ async function handlePublish({ itemId, publishParameters }, token) {
     publishParameters.layerInfo.type = "Table";
   }
 
-  console.log("publishParameters envoyés à AGOL :", JSON.stringify(publishParameters));
-
   const params = new URLSearchParams({
     itemId,
     filetype: "csv",
     publishParameters: JSON.stringify(publishParameters),
-    token: oauthToken,
+    token,
     f: "json"
   });
 
@@ -144,5 +140,10 @@ async function handlePublish({ itemId, publishParameters }, token) {
   if (!data.services || !data.services[0] || data.services[0].success === false) {
     throw new Error("publish : " + JSON.stringify(data.services));
   }
-  return data;
+
+  return {
+    success: true,
+    itemId: data.services[0].serviceItemId,
+    serviceUrl: data.services[0].serviceurl
+  };
 }
