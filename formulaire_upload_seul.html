@@ -12,9 +12,50 @@
   .card-name { font-size: 18px; font-weight: 600; color: #1e293b; margin-bottom: 1.25rem; }
   .field { margin-bottom: 14px; }
   .field label { display: block; font-size: 12px; font-weight: 500; color: #475569; margin-bottom: 5px; }
-  .field input { width: 100%; padding: 9px 11px; border: 1px solid #e2e8f0; border-radius: 8px; font-family: 'DM Sans', sans-serif; font-size: 13px; color: #1e293b; }
-  .field input:focus { outline: none; border-color: #2563eb; }
-  .btn { width: 100%; padding: 14px; border: none; border-radius: 10px; font-family: 'DM Sans', sans-serif; font-size: 15px; font-weight: 600; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 10px; transition: all .2s; background: #2563eb; color: white; margin-top: 6px; }
+
+  /* ── Zone de dépôt ── */
+  .dropzone {
+    position: relative;
+    width: 100%;
+    height: 140px;
+    border: 2px dashed #cbd5e1;
+    border-radius: 12px;
+    background: #f8fafc;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    cursor: pointer;
+    transition: border-color .2s, background .2s;
+  }
+  .dropzone:hover { border-color: #2563eb; background: #eff6ff; }
+  .dropzone.dragover { border-color: #2563eb; background: #eff6ff; }
+  .dropzone.has-file { border-style: solid; border-color: #15803d; background: #f0fdf4; }
+  .dropzone input[type="file"] {
+    position: absolute;
+    inset: 0;
+    opacity: 0;
+    cursor: pointer;
+  }
+  .dropzone .plus-icon {
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    background: #e2e8f0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #64748b;
+    transition: background .2s, color .2s;
+  }
+  .dropzone:hover .plus-icon,
+  .dropzone.dragover .plus-icon { background: #2563eb; color: white; }
+  .dropzone.has-file .plus-icon { background: #15803d; color: white; }
+  .dropzone .dz-text { font-size: 13px; color: #64748b; font-weight: 500; text-align: center; padding: 0 1rem; }
+  .dropzone.has-file .dz-text { color: #15803d; }
+
+  .btn { width: 100%; padding: 14px; border: none; border-radius: 10px; font-family: 'DM Sans', sans-serif; font-size: 15px; font-weight: 600; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 10px; transition: all .2s; background: #2563eb; color: white; margin-top: 16px; }
   .btn:hover:not(:disabled) { background: #1d4ed8; }
   .btn:disabled { opacity: .6; cursor: not-allowed; }
   .status { margin-top: 1rem; padding: 10px 14px; border-radius: 8px; font-size: 13px; font-weight: 500; display: none; align-items: center; gap: 8px; }
@@ -28,6 +69,14 @@
   .log.visible { display: block; }
   .log-line { margin-bottom: 3px; }
   .log-line::before { content: "> "; color: #94a3b8; }
+  .result-box { display: none; margin-top: 1rem; padding: 12px 14px; background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px; }
+  .result-box.visible { display: block; }
+  .result-box label { display: block; font-size: 12px; font-weight: 500; color: #15803d; margin-bottom: 6px; }
+  .result-row { display: flex; align-items: center; gap: 8px; }
+  .result-row code { flex: 1; background: white; border: 1px solid #e2e8f0; border-radius: 6px; padding: 6px 8px; font-size: 12.5px; color: #1e293b; word-break: break-all; }
+  .result-row button { padding: 6px 12px; border: none; border-radius: 6px; background: #2563eb; color: white; font-family: 'DM Sans', sans-serif; font-size: 12.5px; font-weight: 600; cursor: pointer; flex-shrink: 0; }
+  .result-row button:hover { background: #1d4ed8; }
+  #copy-feedback { display: none; margin-top: 6px; font-size: 12px; color: #15803d; font-weight: 500; }
 </style>
 </head>
 <body>
@@ -37,7 +86,13 @@
 
   <div class="field">
     <label>Fichier CSV</label>
-    <input type="file" id="fileInput" accept=".csv">
+    <div class="dropzone" id="dropzone">
+      <div class="plus-icon">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+      </div>
+      <div class="dz-text" id="dzText">Déposez votre fichier ici<br>ou cliquez pour parcourir</div>
+      <input type="file" id="fileInput" accept=".csv">
+    </div>
   </div>
 
   <button class="btn" id="runBtn" onclick="runAll()">
@@ -47,13 +102,63 @@
 
   <div class="status" id="status"></div>
   <div class="log" id="log"></div>
+
+  <div class="result-box" id="result-box">
+    <label>ID de la couche publiée</label>
+    <div class="result-row">
+      <code id="item-id-value"></code>
+      <button type="button" id="copy-btn" onclick="copyItemId()">Copier</button>
+    </div>
+    <span id="copy-feedback">Copié !</span>
+  </div>
 </div>
 
 <script>
 // ── Configuration ────────────────────────────────────────────────────
-const PROXY_URL = "https://project-geys4.vercel.app/api/agol-proxy";
+const PROXY_URL = "https://import-file-one.vercel.app/api/agol-proxy";
 const USERNAME   = "STAGE_IFV";
 // ────────────────────────────────────────────────────────────────────────
+
+// ── Zone de dépôt ──
+const dropzone = document.getElementById("dropzone");
+const fileInput = document.getElementById("fileInput");
+const dzText = document.getElementById("dzText");
+
+function updateDropzoneDisplay(file) {
+  if (file) {
+    dropzone.classList.add("has-file");
+    dzText.innerHTML = `<strong>${file.name}</strong><br>Cliquez pour changer de fichier`;
+  } else {
+    dropzone.classList.remove("has-file");
+    dzText.innerHTML = "Déposez votre fichier ici<br>ou cliquez pour parcourir";
+  }
+}
+
+fileInput.addEventListener("change", () => {
+  updateDropzoneDisplay(fileInput.files[0]);
+});
+
+["dragenter", "dragover"].forEach(evt => {
+  dropzone.addEventListener(evt, (e) => {
+    e.preventDefault();
+    dropzone.classList.add("dragover");
+  });
+});
+
+["dragleave", "drop"].forEach(evt => {
+  dropzone.addEventListener(evt, (e) => {
+    e.preventDefault();
+    dropzone.classList.remove("dragover");
+  });
+});
+
+dropzone.addEventListener("drop", (e) => {
+  const file = e.dataTransfer.files[0];
+  if (file) {
+    fileInput.files = e.dataTransfer.files;
+    updateDropzoneDisplay(file);
+  }
+});
 
 function addLog(msg) {
   const log = document.getElementById("log");
@@ -69,6 +174,48 @@ function setStatus(type, icon, msg) {
   const s = document.getElementById("status");
   s.className = "status " + type;
   s.innerHTML = icon + `<span>${msg}</span>`;
+}
+
+function copyItemId() {
+  const itemId = document.getElementById("item-id-value").textContent;
+
+  // Méthode moderne (peut être bloquée selon le contexte)
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(itemId).then(() => {
+      showCopyFeedback();
+    }).catch(() => {
+      fallbackCopy(itemId);
+    });
+  } else {
+    fallbackCopy(itemId);
+  }
+}
+
+function fallbackCopy(text) {
+  const textarea = document.createElement("textarea");
+  textarea.value = text;
+  textarea.style.position = "fixed";
+  textarea.style.opacity = "0";
+  document.body.appendChild(textarea);
+  textarea.focus();
+  textarea.select();
+  try {
+    document.execCommand("copy");
+    showCopyFeedback();
+  } catch (err) {
+    // Si même la méthode de secours échoue, on affiche l'ID pour copie manuelle
+    const feedback = document.getElementById("copy-feedback");
+    feedback.textContent = "Copie manuelle : " + text;
+    feedback.style.display = "inline";
+  }
+  document.body.removeChild(textarea);
+}
+
+function showCopyFeedback() {
+  const feedback = document.getElementById("copy-feedback");
+  feedback.textContent = "Copié !";
+  feedback.style.display = "inline";
+  setTimeout(() => { feedback.style.display = "none"; }, 2000);
 }
 
 async function callProxy(action, payload) {
@@ -93,49 +240,51 @@ function fileToBase64(file) {
 
 async function runAll() {
   const btn = document.getElementById("runBtn");
-  const file = document.getElementById("fileInput").files[0];
+  const file = fileInput.files[0];
 
-  if (!file) { alert("Choisissez un fichier CSV"); return; }
+  if (!file) {
+    setStatus("error", `<div class="dot"></div>`, "Choisissez un fichier CSV");
+    return;
+  }
 
   btn.disabled = true;
   btn.innerHTML = `<div class="spinner"></div> Traitement en cours…`;
   document.getElementById("log").innerHTML = "";
   document.getElementById("log").classList.remove("visible");
+  document.getElementById("result-box").classList.remove("visible");
   setStatus("info", `<div class="spinner"></div>`, "Préparation du fichier…");
 
   try {
-    // ── 1. Conversion ; → , et passage en base64 ──
-    addLog("Lecture et conversion du fichier…");
+    // addLog("Lecture et conversion du fichier…");
     const text = await file.text();
     const csvCorrige = text.replace(/;/g, ",");
     const blob = new Blob([csvCorrige], { type: "text/csv" });
     const fileContent = await fileToBase64(blob);
-    const fileName = "upload_" + Date.now() + ".csv";
+    const fileName = "upload_sppr_" + Date.now() + ".csv";
 
-    // ── 2. Upload (addItem) via le proxy ──
     setStatus("info", `<div class="spinner"></div>`, "Upload du fichier…");
-    addLog("Upload vers AGOL…");
+    // addLog("Upload vers AGOL…");
     const uploadResult = await callProxy("upload", { username: USERNAME, fileName, fileContent });
     const rawItemId = uploadResult.id;
-    addLog("Fichier uploadé ✓ (id: " + rawItemId.substring(0,8) + "…)");
+    // addLog("Fichier uploadé ✓ (id: " + rawItemId.substring(0,8) + "…)");
 
-    // ── 3. Analyze via le proxy ──
     setStatus("info", `<div class="spinner"></div>`, "Analyse de la structure…");
-    addLog("Analyse du CSV…");
+    // addLog("Analyse du CSV…");
     const analyzeResult = await callProxy("analyze", { itemId: rawItemId, csvText: csvCorrige });
-    addLog("Structure détectée ✓");
-    console.log("publishParameters reçus :", JSON.stringify(analyzeResult.publishParameters, null, 2));
+    // addLog("Structure détectée ✓");
 
-    // ── 4. Publish via le proxy ──
     setStatus("info", `<div class="spinner"></div>`, "Publication de la couche…");
-    addLog("Publication en Feature Layer…");
+    // addLog("Publication en Feature Layer…");
     const publishResult = await callProxy("publish", {
       username: USERNAME,
       itemId: rawItemId,
       publishParameters: analyzeResult.publishParameters
     });
-    const layerItemId = publishResult.services[0].serviceItemId;
-    addLog("Couche publiée ✓ (id: " + layerItemId.substring(0,8) + "…)");
+    const layerItemId = publishResult.itemId;
+    // addLog("Couche publiée ✓ (id: " + layerItemId.substring(0,8) + "…)");
+
+    document.getElementById("item-id-value").textContent = layerItemId;
+    document.getElementById("result-box").classList.add("visible");
 
     setStatus("success", `<div class="dot"></div>`, "Import terminé — couche publiée ✓");
     btn.innerHTML = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg> Terminé`;
